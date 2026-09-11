@@ -1,0 +1,6 @@
+{
+  "name": "PersonaPanel AI - Verified Competency Intelligence Platform",
+  "description": "Multi-agent adaptive workplace simulations, cryptographic competency passports, recruiter talent audit rooms, and institutional cohort analytics.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
