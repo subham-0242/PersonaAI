@@ -87,8 +87,8 @@ def create_app() -> FastAPI:
                 },
                 "models": {
                     "stt": "groq/whisper-large-v3",
-                    "dialogue": "groq/llama-3.3-70b-versatile",
-                    "audit_and_contradictions": "google/gemini-3.8-flash",
+                    "dialogue": "openai/gpt-oss-120b",
+                    "audit_and_contradictions": "google/gemini-3.6-flash",
                     "voices": {
                         "alex": "en-US-GuyNeural (Tech Lead)",
                         "sarah": "en-US-JennyNeural (Product Manager)",

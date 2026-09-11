@@ -5,3 +5,8 @@ coverage/
 *.log
 .env*
 !.env.example
+*__pycache__/
+business_model.md
+features.md
+overview.md
+test.py
