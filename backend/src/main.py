@@ -8,9 +8,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .api.routes_ingest import router as ingest_router
+from .api.routes_orchestrator import router as orchestrator_router
 from .api.routes_session import router as session_router
 from .api.websocket_audio import router as websocket_router
 from .config import get_settings
+from .orchestration.graph import LANGGRAPH_ACTIVE
 from .services.session_context import session_manager
 
 # Configure logging
@@ -43,13 +45,14 @@ def create_app() -> FastAPI:
     settings = get_settings()
 
     app = FastAPI(
-        title="PersonaPanel AI - Phase 2 Audio & Model Orchestration Core",
+        title="PersonaPanel AI - Phase 3 Multi-Agent Orchestration & Dynamic Handoff Core",
         description=(
-            "Real-Time Multi-Agent Voice Transport, Whisper Large v3 STT, "
-            "LLaMA 3.3 70B Conversational Orchestrator, Gemini Contradiction Engine, "
+            "LangGraph-driven Multi-Agent Orchestrator, Autonomous Personas "
+            "(Tech Lead Alex, Product Manager Sarah, Hiring Manager Jordan), "
+            "Groq openai/gpt-oss-120b Dialogue Engine, Gemini 2.0 Flash Auditor, "
             "and Edge-TTS Neural Voice Synthesizer."
         ),
-        version="2.0.0",
+        version="3.0.0",
         lifespan=lifespan,
     )
 
@@ -66,6 +69,7 @@ def create_app() -> FastAPI:
     app.include_router(ingest_router)
     app.include_router(session_router)
     app.include_router(websocket_router)
+    app.include_router(orchestrator_router)
 
     @app.get("/health", tags=["Health"])
     @app.get("/", tags=["Health"])
@@ -76,9 +80,16 @@ def create_app() -> FastAPI:
         return JSONResponse(
             content={
                 "status": "healthy",
-                "service": "PersonaPanel AI Backend Core",
-                "version": "2.0.0",
+                "service": "PersonaPanel AI Multi-Agent Core",
+                "version": "3.0.0",
+                "phase": "Phase 3: Multi-Agent Orchestration & Dynamic Handoff Core",
                 "timestamp": time.time(),
+                "orchestration": {
+                    "framework": "LangGraph" if LANGGRAPH_ACTIVE else "Native StateGraph",
+                    "nodes": ["auditor", "tech_lead", "product_manager", "hiring_manager", "coordinator"],
+                    "personas": ["alex", "sarah", "jordan"],
+                    "handoff_mode": "contextual_dynamic",
+                },
                 "integrations": {
                     "gemini_api": "active" if has_gemini else "fallback_simulation",
                     "groq_api": "active" if has_groq else "fallback_simulation",
@@ -87,8 +98,8 @@ def create_app() -> FastAPI:
                 },
                 "models": {
                     "stt": "groq/whisper-large-v3",
-                    "dialogue": "openai/gpt-oss-120b",
-                    "audit_and_contradictions": "google/gemini-3.6-flash",
+                    "dialogue": settings.groq_chat_model or "openai/gpt-oss-120b",
+                    "audit_and_contradictions": settings.gemini_model or "gemini-2.0-flash",
                     "voices": {
                         "alex": "en-US-GuyNeural (Tech Lead)",
                         "sarah": "en-US-JennyNeural (Product Manager)",

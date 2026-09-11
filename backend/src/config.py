@@ -9,7 +9,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     gemini_api_key: str = Field(default="", validation_alias="GEMINI_API_KEY")
+    gemini_model: str = Field(default="gemini-2.0-flash", validation_alias="GEMINI_MODEL")
     groq_api_key: str = Field(default="", validation_alias="GROQ_API_KEY")
+    groq_chat_model: str = Field(default="openai/gpt-oss-120b", validation_alias="GROQ_CHAT_MODEL")
     redis_url: str = Field(default="redis://localhost:6379/0", validation_alias="REDIS_URL")
 
     host: str = Field(default="0.0.0.0", validation_alias="HOST")

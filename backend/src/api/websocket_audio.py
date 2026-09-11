@@ -7,6 +7,7 @@ import time
 from typing import Any, Dict, Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from ..orchestration.graph import execute_interview_turn
 from ..services.gemini_service import gemini_service
 from ..services.groq_service import groq_service
 from ..services.session_context import session_manager
@@ -136,89 +137,70 @@ async def websocket_simulation_endpoint(websocket: WebSocket, session_id: str):
                     # Cancel any prior voice output
                     conn_state.cancel_active_speech()
 
-                    # Retrieve session context
+                    # Notify client AI is processing
                     context = await session_manager.get_full_session_context(session_id)
                     current_persona = context.get("current_persona", "alex")
-                    turns_history = context.get("recent_turns", [])
-                    claims = context.get("claims", [])
-
-                    # Record Candidate Turn in session history
-                    await session_manager.add_turn(
-                        session_id=session_id,
-                        speaker="candidate",
-                        text=candidate_text,
-                        persona="candidate",
-                    )
-
-                    # Step 4a: Asynchronous contradiction evaluation via Gemini
-                    async def run_contradiction_check():
-                        try:
-                            res = await gemini_service.detect_contradictions(
-                                current_answer=candidate_text,
-                                session_history=turns_history,
-                                resume_claims=claims,
-                            )
-                            if res.get("contradiction_detected"):
-                                await websocket.send_json({
-                                    "event": "CONTRADICTION_DETECTED",
-                                    "session_id": session_id,
-                                    "contradiction": res,
-                                    "timestamp": time.time(),
-                                })
-                        except Exception as ce:
-                            logger.warning("Contradiction check error: %s", ce)
-
-                    # Fire contradiction check as background task (non-blocking)
-                    asyncio.create_task(run_contradiction_check())
-
-                    # Step 4b: Execute panelist dialogue via Groq LLaMA 3.3
                     await websocket.send_json({
                         "event": "AI_THINKING",
                         "persona": current_persona,
                     })
 
-                    panelist_turn = await groq_service.generate_panelist_turn(
-                        persona=current_persona,
+                    # Execute full LangGraph multi-agent workflow
+                    turn_result = await execute_interview_turn(
+                        session_id=session_id,
                         candidate_text=candidate_text,
-                        session_context=context,
+                        synthesize_voice=False,  # Cancellable streaming managed below
                     )
 
-                    response_text = panelist_turn.get("cleaned_text", "")
-                    handoff_target = panelist_turn.get("handoff")
+                    speaker_persona = turn_result.get("speaker", current_persona)
+                    response_text = turn_result.get("text", "")
+                    handoff_decision = turn_result.get("handoff", {})
+                    contradiction = turn_result.get("contradiction")
+                    new_difficulty = turn_result.get("difficulty_level", 3)
 
+                    # 1. Dispatch Contradiction alert if detected
+                    if contradiction and contradiction.get("contradiction_detected"):
+                        await websocket.send_json({
+                            "event": "CONTRADICTION_DETECTED",
+                            "session_id": session_id,
+                            "contradiction": contradiction,
+                            "timestamp": time.time(),
+                        })
+
+                    # 2. Dispatch Adaptive Difficulty update
                     await websocket.send_json({
-                        "event": "AI_TURN_START",
+                        "event": "DIFFICULTY_UPDATED",
                         "session_id": session_id,
-                        "persona": current_persona,
-                        "text": response_text,
-                        "handoff": handoff_target,
+                        "difficulty_level": new_difficulty,
+                        "delta": handoff_decision.get("difficulty_delta", 0),
                         "timestamp": time.time(),
                     })
 
-                    # Step 4c: Record AI turn
-                    await session_manager.add_turn(
-                        session_id=session_id,
-                        speaker=current_persona,
-                        text=response_text,
-                        persona=current_persona,
-                        handoff=handoff_target,
-                    )
+                    # 3. Dispatch AI Turn Start
+                    await websocket.send_json({
+                        "event": "AI_TURN_START",
+                        "session_id": session_id,
+                        "persona": speaker_persona,
+                        "text": response_text,
+                        "handoff": handoff_decision.get("next_persona") if handoff_decision.get("handoff_occurred") else None,
+                        "timestamp": time.time(),
+                    })
 
-                    # Step 4d: Voice Synthesis & Audio Streaming via Edge-TTS
+                    # 4. Voice Synthesis & Audio Streaming via Edge-TTS
                     async def stream_tts():
                         conn_state.is_ai_speaking = True
                         try:
                             # Generate base64 audio payload for the browser client
                             audio_b64 = await tts_service.synthesize_to_base64(
                                 text=response_text,
-                                persona=current_persona,
+                                persona=speaker_persona,
                             )
 
                             if audio_b64 and conn_state.is_ai_speaking:
                                 await websocket.send_json({
                                     "event": "AUDIO_RESPONSE",
                                     "session_id": session_id,
-                                    "persona": current_persona,
+                                    "persona": speaker_persona,
                                     "audio": audio_b64,
                                     "mime_type": "audio/mp3",
                                     "timestamp": time.time(),
@@ -228,7 +210,7 @@ async def websocket_simulation_endpoint(websocket: WebSocket, session_id: str):
                                 await websocket.send_json({
                                     "event": "AI_TURN_END",
                                     "session_id": session_id,
-                                    "persona": current_persona,
+                                    "persona": speaker_persona,
                                     "timestamp": time.time(),
                                 })
                         except asyncio.CancelledError:
@@ -240,16 +222,14 @@ async def websocket_simulation_endpoint(websocket: WebSocket, session_id: str):
 
                     conn_state.active_tts_task = asyncio.create_task(stream_tts())
 
-                    # Step 4e: If handoff occurred, update active persona for next turn
-                    if handoff_target and handoff_target != current_persona:
-                        updated_persona = await session_manager.set_current_persona(
-                            session_id, handoff_target
-                        )
+                    # 5. Dispatch Speaker Handoff if occurred
+                    if handoff_decision.get("handoff_occurred"):
                         await websocket.send_json({
                             "event": "SPEAKER_HANDOFF",
                             "session_id": session_id,
-                            "previous_persona": current_persona,
-                            "new_persona": updated_persona,
+                            "previous_persona": handoff_decision.get("previous_persona", speaker_persona),
+                            "new_persona": handoff_decision.get("next_persona"),
+                            "reason": handoff_decision.get("reason"),
                             "timestamp": time.time(),
                         })
 

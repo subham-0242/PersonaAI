@@ -108,7 +108,7 @@ class GeminiService:
     def __init__(self):
         self.settings = get_settings()
         self._client: Optional[genai.Client] = None
-        self.model_name = "gemini-3.6-flash"
+        self.model_name = self.settings.gemini_model or "gemini-2.0-flash"
 
     @property
     def client(self) -> genai.Client:

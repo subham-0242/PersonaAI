@@ -54,7 +54,7 @@ class GroqService:
     def __init__(self):
         self.settings = get_settings()
         self._client: Optional[AsyncGroq] = None
-        self.chat_model = "openai/gpt-oss-120b"
+        self.chat_model = self.settings.groq_chat_model or "openai/gpt-oss-120b"
         self.whisper_model = "whisper-large-v3"
 
     @property
